@@ -24,7 +24,7 @@ from ..narmax_base import (
 from ..parameter_estimation.estimators import Estimators
 
 
-class FROLS(
+class FROLS2(
     Estimators,
     GenerateRegressors,
     HouseHolder,
@@ -163,6 +163,7 @@ class FROLS(
         mu=0.01,
         eps=np.finfo(np.float64).eps,
         gama=0.2,
+        sigma=0.005,
         weight=0.02,
         basis_function=None,
         model_type="NARMAX"
@@ -241,6 +242,9 @@ class FROLS(
 
     def error_reduction_ratio(self, psi, y, process_term_number):
         """Perform the Error Reduction Ration algorithm [1]_, [2]_.
+        This method uses the Householder transformation in decomposing the 
+        information matrix. The Householder transformation is as competitive as
+        the MGS procedure but less accurate according to Billings.
 
         Parameters
         ----------
@@ -272,7 +276,7 @@ class FROLS(
            e Novos Resultados
 
         """
-        squared_y = np.dot(y[self.max_lag :].T, y[self.max_lag :])
+        squared_y = y[self.max_lag :].T@y[self.max_lag :]
         tmp_psi = psi.copy()
         y = y[self.max_lag :, 0].reshape(-1, 1)
         tmp_y = y.copy()
@@ -285,8 +289,9 @@ class FROLS(
             for j in np.arange(i, dimension):
                 # Add `eps` in the denominator to omit division by zero if
                 # denominator is zero
-                tmp_err[j] = (np.dot(tmp_psi[i:, j].T, tmp_y[i:]) ** 2) / (
-                    np.dot(tmp_psi[i:, j].T, tmp_psi[i:, j]) * squared_y + self._eps
+
+                tmp_err[j] = ((tmp_psi[i:, j].T@tmp_y[i:]) ** 2) / (
+                    tmp_psi[i:, j].T@tmp_psi[i:, j] * squared_y + self._eps
                 )
 
             if i == process_term_number:
@@ -297,8 +302,9 @@ class FROLS(
             tmp_psi[:, [piv_index, i]] = tmp_psi[:, [i, piv_index]]
             piv[[piv_index, i]] = piv[[i, piv_index]]
 
+            # first obtain the Householder reflection.
             v = self._house(tmp_psi[i:, i])
-
+            # Then the row reflection
             row_result = self._rowhouse(tmp_psi[i:, i:], v)
 
             tmp_y[i:] = self._rowhouse(tmp_y[i:], v)
@@ -307,6 +313,7 @@ class FROLS(
 
         tmp_piv = piv[0:process_term_number]
         psi_orthogonal = psi[:, tmp_piv]
+
         return err, piv, psi_orthogonal
 
     def information_criterion(self, X_base, y):
@@ -317,7 +324,7 @@ class FROLS(
                    critical value 2 (AIC) (default).
         'Bayes' -  Bayes Information Criterion (BIC).
         'FPE'   -  Final Prediction Error (FPE).
-        'LILC'  -  Khundrin’s law ofiterated logarithm criterion (LILC).
+        'LILC'  -  Khundrin’s law of iterated logarithm criterion (LILC).
 
         Parameters
         ----------
@@ -405,7 +412,7 @@ class FROLS(
 
         return info_criteria_value
 
-    def fit(self, *, X=None, y=None):
+    def fit(self, *, X, y, reg_matrix=None):
         """Fit polynomial NARMAX model.
 
         This is an 'alpha' version of the 'fit' function which allows
@@ -414,10 +421,8 @@ class FROLS(
 
         Parameters
         ----------
-        X : ndarray of floats
+        reg_matrix : ndarray of floats
             The input data to be used in the training process.
-        y : ndarray of floats
-            The output data to be used in the training process.
 
         Returns
         -------
@@ -436,37 +441,6 @@ class FROLS(
             vector position + 1).
 
         """
-        if y is None:
-            raise ValueError("y cannot be None")
-
-        if self.model_type == "NARMAX":
-            check_X_y(X, y)
-            self.max_lag = self._get_max_lag(ylag=self.ylag, xlag=self.xlag)
-            lagged_data = self.build_input_output_matrix(X, y, self.xlag, self.ylag)
-        elif self.model_type == "NAR":
-            lagged_data = self.build_output_matrix(y, self.ylag)
-            self.max_lag = self._get_max_lag(ylag=self.ylag)
-        elif self.model_type == "NFIR":
-            lagged_data = self.build_input_matrix(X, self.xlag)
-            self.max_lag = self._get_max_lag(xlag=self.xlag)
-        else:
-            raise ValueError(
-                "Unrecognized model type. The model_type should be NARMAX, NAR or NFIR."
-            )
-
-        if self.basis_function.__class__.__name__ == "Polynomial":
-            reg_matrix = self.basis_function.fit(
-                lagged_data, self.max_lag, predefined_regressors=None
-            )
-        elif self.basis_function.__class__.__name__ == "CruiseControlBasis":
-            reg_matrix = self.basis_function.fit(
-                X, y, 
-            )
-        else:
-            reg_matrix, self.ensemble = self.basis_function.fit(
-                lagged_data, self.max_lag, predefined_regressors=None
-            )
-
         if X is not None:
             self._n_inputs = _num_features(X)
         else:
@@ -490,6 +464,7 @@ class FROLS(
         else:
             model_length = self.n_terms
 
+        # Err, indices to put reg matrices, orth. reg matrix.
         (self.err, self.pivv, psi) = self.error_reduction_ratio(
             reg_matrix, y, model_length
         )
@@ -497,7 +472,7 @@ class FROLS(
         tmp_piv = self.pivv[0:model_length]
         if self.basis_function.__class__.__name__ == "Polynomial":
             self.final_model = self.regressor_code[tmp_piv, :].copy()
-        elif self.basis_function.__class__.__name__ != "Polynomial" and self.ensemble:
+        elif self.basis_function.__class__.__name__ != "Polynomial" and self.basis_function.ensemble:
             basis_code = np.sort(
                 np.tile(
                     self.regressor_code[1:, :], (self.basis_function.repetition, 1)
@@ -513,6 +488,8 @@ class FROLS(
                 ),
                 axis=0,
             )
+            # print("self.regressor_code: ", self.regressor_code.shape)
+            # print("pivv: ", self.pivv.shape, "tmp_piv: ", tmp_piv)
             self.final_model = self.regressor_code[tmp_piv, :].copy()
 
         self.theta = getattr(self, self.estimator)(psi, y)
@@ -561,6 +538,7 @@ class FROLS(
                 return self._n_step_ahead_prediction(X, y, steps_ahead=steps_ahead)
         else:
             if steps_ahead is None:
+                # print(f"self.theta: {self.theta}, forecast_horizon: {forecast_horizon}")
                 return self._basis_function_predict(
                     X, y, self.theta, forecast_horizon=forecast_horizon
                 )

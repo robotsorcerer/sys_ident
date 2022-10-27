@@ -166,3 +166,4 @@ class Fourier:
 
     def transform(self, data, max_lag, predefined_regressors=None):
         return self.fit(data, max_lag, predefined_regressors)
+

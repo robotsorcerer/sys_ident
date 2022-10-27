@@ -13,6 +13,8 @@ import numpy as np
 
 from .utils._check_arrays import _check_positive_int, _num_features
 
+# added by lekuaman to avoid divide by zero.
+_eps = np.finfo(np.float64).eps
 
 class GenerateRegressors:
     """Polynomial NARMAX model
@@ -167,8 +169,9 @@ class HouseHolder:
         u = np.linalg.norm(x, 2)
         if u != 0:
             aux_b = x[0] + np.sign(x[0]) * u
-            x = x[1:] / aux_b
+            x = x[1:] / (aux_b + _eps)
             x = np.concatenate((np.array([1]), x))
+
         return x
 
     def _rowhouse(self, RA, v):
