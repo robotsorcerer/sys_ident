@@ -15,6 +15,9 @@
 [![forks](https://img.shields.io/github/forks/wilsonrljr/sysidentpy?style=social)](https://github.com/wilsonrljr/sysidentpy/network/members)
 [![stars](https://img.shields.io/github/stars/wilsonrljr/sysidentpy?style=social)](https://github.com/wilsonrljr/sysidentpy/stargazers)
 
+## Repositories
+
+This repo is a meta agglomeration of the [NARMAX python system identification toolbox](git@github.com:wilsonrljr/sysidentpy.git) and the python version of the [matlab system identification](https://github.com/CPCLAB-UNIPI/SIPPY) toolbox. The root folder contains every routine related to NARMAX models while the folder [sysidentpy](/sysidentpy) contains all codes for the SIPPY package.
 
 ## What is SysIdentPy?
 
